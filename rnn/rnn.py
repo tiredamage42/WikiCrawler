@@ -5,7 +5,7 @@ loop_state_fn arguments: (time, previous loop state, previous cell state)
 should return the new loop state (any sort of tuple)
 
 '''
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 
 from tensorflow.python.ops.rnn import _transpose_batch_time
@@ -31,7 +31,7 @@ def dynamic_rnn(input_data, cell, loop_state_fn=None, initial_loop_state=None, b
         if previous_state is None:    # time == 0
             return (finished, inputs_ta.read(time), initial_state, previous_output, initial_loop_state)
         else:
-            step_input = tf.cond(tf.reduce_all(finished), lambda: pad_input, lambda: inputs_ta.read(time if initial_input is None else time - 1))
+            step_input = tf.cond(tf.reduce_all(finished), lambda: pad_input, lambda: inputs_ta.read(time))
             if loop_state_fn is not None:
                 previous_loop_state = loop_state_fn(time, previous_loop_state, previous_state)
             return (finished, step_input, previous_state, previous_output, previous_loop_state)

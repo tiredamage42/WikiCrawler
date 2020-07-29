@@ -1,14 +1,12 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import collections
-from freeness import Freeness
-from temporal_linkage import TemporalLinkage
-import layers
-import graph_utils
-import dnc_utils
 import numpy as np
 
-tf.disable_v2_behavior()
+from .freeness import Freeness
+from .temporal_linkage import TemporalLinkage
+from . import layers, graph_utils, dnc_utils
 
+tf.disable_v2_behavior()
 
 AccessState = collections.namedtuple('AccessState', 
     (
@@ -59,39 +57,32 @@ class MemoryAccess:
         
         self.interface_size = ((num_writes * word_size)*3) + (num_reads * num_read_modes) + (num_reads * word_size) + (num_writes * 3) + (num_reads * 2)
             
-
         # flatten channel should be 1....
-        self.interface_linear = layers.Dense('write_vectors', self.interface_size, activation=None, use_bias=True, debug_layer=False, keep_prob=1.0)
+        self.interface_linear = layers.Dense('write_vectors', self.interface_size, activation=None, use_bias=True)
         self.save_state = save_state
         if self.save_state:
             assert batch_size is not None
             with tf.variable_scope(name):
-            
                 self._mem_state = graph_utils.get_variable(
                     '_mem_state', shape=[batch_size, self._memory_size, self._word_size], 
-                    dtype=tf.float32, initializer=tf.zeros_initializer, trainable=False, save_var=False, add_histograms=False
+                    dtype=tf.float32, initializer=tf.zeros_initializer, trainable=False, save_var=False
                 )
                 self._read_weights_state = graph_utils.get_variable(
                     '_read_weights_state', shape=[batch_size, self._num_reads, self._memory_size], 
-                    dtype=tf.float32, initializer=tf.zeros_initializer, trainable=False, save_var=False, add_histograms=False
+                    dtype=tf.float32, initializer=tf.zeros_initializer, trainable=False, save_var=False
                 )
                 self._write_weights_state = graph_utils.get_variable(
                     '_write_weights_state', shape=[batch_size, self._num_writes, self._memory_size], 
-                    dtype=tf.float32, initializer=tf.zeros_initializer, trainable=False, save_var=False, add_histograms=False
+                    dtype=tf.float32, initializer=tf.zeros_initializer, trainable=False, save_var=False
                 )
     @property
     def state_size(self):
         return AccessState(
-            #memory=tf.TensorShape([self._memory_size, self._word_size]),
-            #read_weights=tf.TensorShape([self._num_reads, self._memory_size]),
-            #write_weights=tf.TensorShape([self._num_writes, self._memory_size]),
             memory=self._memory_size * self._word_size,
             read_weights=self._num_reads * self._memory_size,
             write_weights=self._num_writes * self._memory_size,
-            
             linkage=self._linkage.state_size,
             usage=self._freeness.state_size,
-         
         )
 
     def update_state(self, final_state):
@@ -169,8 +160,8 @@ class MemoryAccess:
             ))
             
     def _read_inputs(self, inputs):
-        print("input to memory access read input")
-        print(inputs.get_shape())
+        # print("input to memory access read input")
+        # print(inputs.get_shape())
 
         """Applies transformations to `inputs` to get control for this module."""
         interface_vectored = self.interface_linear(inputs)
@@ -228,7 +219,7 @@ class MemoryAccess:
         read_mode_size = self._num_reads * num_read_modes
         read_mode = interface_vectored[:, q:q+read_mode_size]
         read_mode = tf.reshape(read_mode, [-1, self._num_reads, num_read_modes])
-        read_mode = dnc_utils.BatchApply(read_mode, tf.nn.softmax)
+        read_mode = BatchApply(read_mode, tf.nn.softmax)
         q += read_mode_size
            
         # Parameters for the (read / write) "weights by content matching" modules.
@@ -282,8 +273,8 @@ class MemoryAccess:
         write_strengths = inputs['write_content_strengths'] #[..., WRITE HEADS]
         write_gate = inputs['write_gate'] # [..., WRITE HEADS]
         allocation_gate = inputs['allocation_gate'] # [..., WRITE HEADS]
-        print (allocation_gate)
-        print (write_gate)
+        # print (allocation_gate)
+        # print (write_gate)
 
         with tf.name_scope('write_weights', values=[inputs, memory, usage]):
             # c_t^{w, i} - The content-based weights for each write head.
@@ -384,10 +375,6 @@ def _erase_and_write(memory, address, reset_weights, values):
         memory += add_matrix
     return memory
 
-
-
-
-
 def split_leading_dim(tensor, inputs):
     """
     Args:
@@ -443,10 +430,9 @@ def merge_leading_dims(array_or_tensor):
         merged_leading_size = None
     result.set_shape([merged_leading_size] + tensor_shape_list[2:])
     return result
+
 def BatchApply(inputs, module_or_op):
     return split_leading_dim(module_or_op(merge_leading_dims(inputs)), inputs)
-
-
 
 def weighted_softmax(activations, strengths, strengths_op):
     """Returns softmax over activations multiplied by positive strengths.
@@ -463,14 +449,12 @@ def weighted_softmax(activations, strengths, strengths_op):
     sharp_activations = activations * transformed_strengths
     return BatchApply(sharp_activations, tf.nn.softmax)
     
-    
 # Ensure values are greater than epsilon to avoid numerical instability.
 _EPSILON = 1e-6
 
 def _vector_norms(m):
     squared_norms = tf.reduce_sum(m * m, axis=2, keepdims=True)
     return tf.sqrt(squared_norms + _EPSILON)
-
 
 def cosine_weighting(memory, keys, strengths, strength_op=tf.nn.softplus, name='cosine_weights'):
     """Cosine-weighted attention.

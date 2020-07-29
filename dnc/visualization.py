@@ -1,4 +1,4 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.python.ops.rnn import _transpose_batch_time
 
 tf.disable_v2_behavior()
@@ -38,7 +38,7 @@ def assemble_mem_view(final_loop_state, read_head_index, write_head_index, serie
     series_imgs_ = []
     for i, s in enumerate(series_list):
         series_imgs_.append( tf.tile(tf.expand_dims(s, -1), [1,1,1,3]) * filters[i%3])
-        
+
     series_imgs = tf.concat(series_imgs_, 2)    
 
     #memory views

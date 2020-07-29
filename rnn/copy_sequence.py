@@ -11,7 +11,7 @@ I: x x x x | - - - - - -
 T: - - - - x x x x * - - (repeat pattern series amount)
 
 '''
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 
 def copy_sequence_toy_data_fn (
@@ -39,14 +39,11 @@ def copy_sequence_toy_data_fn (
 
                 series_length = tf.random_uniform(shape=[], minval=series_length_range[0], maxval=series_length_range[1]+1, dtype=tf.int32)
                 
-                
-                
                 '''
                 [[1],
                 [1]]
                 '''                    
                 sos_slice = tf.ones([series_length, 1,] + shape_end, dtype=dtype)
-                
                 
                 '''
                 v  1 1 0 1 1
@@ -57,7 +54,6 @@ def copy_sequence_toy_data_fn (
                 '''                   
                 sequence = tf.round(tf.random_uniform(shape=[series_length, seq_length, vocab_size - 1], minval=0.0, maxval=1.0, dtype=dtype))
                 #add last unused channel
-                
                 
                 '''
                 v  1 1 0 1 1
@@ -80,28 +76,22 @@ def copy_sequence_toy_data_fn (
                 eos = tf.expand_dims(tf.expand_dims(tf.one_hot(vocab_size-1, vocab_size), 0), 0)
                 
                 eos_slice = tf.tile(eos, [series_length, 1, 1])
-                
-                    
+                                    
                 '''[6, 3, 4, 5, 1]'''                    
                 sequence_with_sos = tf.concat([sequence, sos_slice], 1)
                                         
                 input_end_pad = tf.zeros([series_length, seq_length + error_pad_steps,] + shape_end, dtype=dtype)
-                    
                                 
                 '''IN: [6, 3, 4, 5, 1, 0, 0, 0, 0, 0, 0]'''                    
                 input_data = tf.concat([sequence_with_sos, input_end_pad], 1)
-
-                    
+    
                 '''IN: [6, 3, 4, 5, 1, 0, 0, 0, 0, 0, 0]'''                    
                 '''OUT:[-------------------------, 0, 0]'''                    
                 error_pad_slice = tf.zeros([series_length, error_pad_steps,] + shape_end, dtype=dtype)
-                
-                
+                                
                 '''IN: [6, 3, 4, 5, 1, 0, 0, 0, 0, 0, 0]'''                    
                 '''OUT:[0, 0, 0, 0, -------------------]'''                    
                 target_start_pad = tf.zeros([series_length, seq_length,] + shape_end, dtype=dtype)
-
-
 
                 '''IN: [6, 3, 4, 5, 1, 0, 0, 0, 0, 0, 0]'''                    
                 '''OUT:[0, 0, 0, 0, 6, 3, 4, 5, 1, 0, 0]'''                    
@@ -146,7 +136,11 @@ def initialize_dataset_args(train_set, validation_set, validation_samples, batch
     data_args['handle_ph'] = tf.placeholder(tf.string, shape=[])
     
     # A feedable iterator is defined by a handle placeholder and its structure. 
-    iterator = tf.data.Iterator.from_string_handle(data_args['handle_ph'], train_set.output_types, train_set.output_shapes)
+    iterator = tf.data.Iterator.from_string_handle(
+        data_args['handle_ph'], 
+        tf.data.get_output_types(train_set),
+        tf.data.get_output_shapes(train_set)
+    )
     data_args['Training'] = {}
     data_args['Training']['Iterator'] = train_set.make_one_shot_iterator() #repeats infinite anyways
     data_args['Training']["BatchSize"] = batch_size

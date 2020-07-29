@@ -7,5 +7,6 @@ Learn more about DNC's [here](https://deepmind.com/blog/article/differentiable-n
 The DNC implementation and visualizations are based on [this implementation by Mostafa-Samir](https://github.com/Mostafa-Samir/DNC-tensorflow).
 
 Using:
-- Tensorflow
-- Wikipedia Module
+- Tensorflow `pip install tensorflow`
+- Wikipedia Module `pip install wikipedia`
+- colored (for logging) `pip install colored`

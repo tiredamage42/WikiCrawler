@@ -1,6 +1,6 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import collections
-import graph_utils
+from . import graph_utils
 tf.disable_v2_behavior()
 
 TemporalLinkageState = collections.namedtuple('TemporalLinkageState', ('link', 'precedence_weights'))
@@ -28,8 +28,7 @@ class TemporalLinkage:
                     dtype=tf.float32, 
                     initializer=tf.zeros_initializer, 
                     trainable=False, 
-                    save_var=False, 
-                    add_histograms=False
+                    save_var=False
                 )
                 self._precedence_weights_state = graph_utils.get_variable(
                     '_precedence_weights_state', 
@@ -39,8 +38,7 @@ class TemporalLinkage:
                     dtype=tf.float32, 
                     initializer=tf.zeros_initializer, 
                     trainable=False, 
-                    save_var=False, 
-                    add_histograms=False
+                    save_var=False
                 )
     @property
     def state_size(self):

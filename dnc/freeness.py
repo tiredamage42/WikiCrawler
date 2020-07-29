@@ -1,6 +1,5 @@
-import tensorflow as tf
-import dnc_utils
-import graph_utils
+import tensorflow.compat.v1 as tf
+from . import dnc_utils, graph_utils
 tf.disable_v2_behavior()
 
 _EPSILON = 1e-6
@@ -18,15 +17,14 @@ class Freeness:
     to write to for a number of write heads.
     """
 
-    def __init__(self, memory_size, softmax_write_weights, save_state, batch_size, name='freeness'):
+    def __init__(self, memory_size, save_state, batch_size, name='freeness'):
         self._memory_size = memory_size
-        self.softmax_write_weights = softmax_write_weights
         self.save_state = save_state
         if self.save_state:
             with tf.variable_scope(name):
                 self._state = graph_utils.get_variable(
                     '_state', shape=[batch_size, self._memory_size], 
-                    dtype=tf.float32, initializer=tf.zeros_initializer, trainable=False, save_var=False, add_histograms=False
+                    dtype=tf.float32, initializer=tf.zeros_initializer, trainable=False, save_var=False
                 )
 
     @property
@@ -68,13 +66,13 @@ class Freeness:
             usage.
         """
         # Calculation of usage is not differentiable with respect to write weights.
-        if not self.softmax_write_weights:
-            write_weights = tf.stop_gradient(write_weights)
+        write_weights = tf.stop_gradient(write_weights)
+        
         usage = self._usage_after_write(prev_usage, write_weights)
         usage = self._usage_after_read(usage, free_gate, read_weights)
         return usage
 
-    def write_allocation_weights(self, usage, write_gates, num_writes, allocation_strength):
+    def write_allocation_weights(self, usage, write_gates, num_writes):
         """Calculates freeness-based locations for writing to.
         This finds unused memory by ranking the memory locations by usage, for each
         write head. (For more than one write head, we use a "simulated new usage"
@@ -98,7 +96,7 @@ class Freeness:
 
             allocation_weights = []
             for i in range(num_writes):
-                allocation_weights.append(self._allocation(usage, allocation_strength))
+                allocation_weights.append(self._allocation(usage))
                 # update usage to take into account writing to this new allocation
                 usage += ((1 - usage) * write_gates[:, i, :] * allocation_weights[i])
 
@@ -155,11 +153,11 @@ class Freeness:
             sorted_usage = 1 - sorted_nonusage
             prod_sorted_usage = tf.cumprod(sorted_usage, axis=1, exclusive=True)
             sorted_allocation = sorted_nonusage * prod_sorted_usage
-            inverse_indices = dnc_utils.batch_invert_permutation(indices)
+            inverse_indices = batch_invert_permutation(indices)
 
             # This final line "unsorts" sorted_allocation, so that the indexing
             # corresponds to the original indexing of `usage`.
-            return dnc_utils.batch_gather(sorted_allocation, inverse_indices)
+            return batch_gather(sorted_allocation, inverse_indices)
             
     
         

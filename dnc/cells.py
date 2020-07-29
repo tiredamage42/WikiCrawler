@@ -1,7 +1,6 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import collections
-import layers
-import graph_utils
+from . import layers, graph_utils
 
 tf.disable_v2_behavior()
 
@@ -14,7 +13,7 @@ is learned using the DNC's read/write heads.
 
 class StatelessCell(tf.nn.rnn_cell.RNNCell):
     def __init__(self, layer_name, features):
-        self.linear = layers.Dense(layer_name, features, activation=tf.nn.leaky_relu, keep_prob=0.75)
+        self.linear = layers.Dense(layer_name, features, activation=tf.nn.leaky_relu)
     
     @property
     def state_size(self):
@@ -61,10 +60,10 @@ class DNCCell(tf.nn.rnn_cell.RNNCell):
             access_state=self.memory.state_size, 
             read_vectors=self.memory.output_size
         )
+        
     @property
     def output_size(self):
         return self.controller.output_size + self.memory.output_size
-        
         
     def zero_state(self, batch_size, dtype):
         return DNCStateTuple(
@@ -92,13 +91,11 @@ class DNCCell(tf.nn.rnn_cell.RNNCell):
         with tf.control_dependencies(dependencies):
             return tf.no_op()
    
-    def __init__(self, controller_cell, save_state=False, batch_size=None, memory_size = 256, word_size = 64, num_reads = 4, num_writes = 1, debug_layer=False, clip_value=None):
-        
+    def __init__(self, controller_cell, save_state=False, batch_size=None, memory_size = 256, word_size = 64, num_reads = 4, num_writes = 1, clip_value=None):
         """
         controller_cell: 
             Tensorflow RNN Cell
-        """
-                
+        """     
         self.memory = MemoryAccess(memory_size, word_size, num_reads, num_writes, save_state, batch_size)
         
         self.controller = controller_cell
@@ -112,9 +109,7 @@ class DNCCell(tf.nn.rnn_cell.RNNCell):
                     shape=[batch_size, self.memory.output_size], 
                     dtype=tf.float32, 
                     initializer=tf.zeros_initializer, 
-                    trainable=False, 
-                    save_var=False, 
-                    add_histograms=False
+                    trainable=False, save_var=False
                 )
 
         

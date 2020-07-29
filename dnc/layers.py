@@ -1,26 +1,15 @@
-import tensorflow as tf
-import graph_utils
+import tensorflow.compat.v1 as tf
+from . import graph_utils
 
 tf.disable_v2_behavior()
-
-'''
-add dropout (if dropout rate is less than one and we're training)
-'''
-def dropout(in_tensor, keep_prob):
-    if keep_prob >= 1.0 or (isinstance(graph_utils.IS_TRAINING, bool) and not graph_utils.IS_TRAINING):
-        return in_tensor
-    with tf.variable_scope("dropout"):
-        return tf.nn.dropout(in_tensor, tf.cond(graph_utils.IS_TRAINING, lambda : keep_prob, lambda : 1.0), name="dropout")
-
     
 '''
 class embeddings for Natural Language Processing
 '''
 class Embeddings():
-    def __init__(self, layer_name, vocab_size, embedding_size, debug_layer=False):
+    def __init__(self, layer_name, vocab_size, embedding_size):
         self.layer_name = layer_name
         self.is_built = False
-        self.debug_layer = debug_layer
         self.vocab_size = vocab_size
         self.embedding_size = embedding_size
         
@@ -35,8 +24,7 @@ class Embeddings():
                     dtype=tf.float32, 
                     initializer=None, 
                     trainable=True, 
-                    save_var=True, 
-                    add_histograms=self.debug_layer
+                    save_var=True
                 )
                 self.is_built = True
 
@@ -45,11 +33,9 @@ class Embeddings():
 '''
 fully connected dense layer
 '''
-class Dense(_WeightedLayer):
-    def __init__(self, layer_name, features, activation=tf.nn.leaky_relu, use_bias=True, debug_layer=False, keep_prob=1.0):
+class Dense():
+    def __init__(self, layer_name, features, activation=tf.nn.leaky_relu, use_bias=True):
         self.is_built = False
-        self.debug_layer = debug_layer
-        self.keep_prob = keep_prob
         self.layer_name = layer_name
         self.use_bias = use_bias
         self.features = features
@@ -68,8 +54,7 @@ class Dense(_WeightedLayer):
                     dtype=tf.float32, 
                     initializer=None, 
                     trainable=True, 
-                    save_var=True, 
-                    add_histograms=self.debug_layer
+                    save_var=True
                 )
                 if self.use_bias:
                     self.b = graph_utils.get_variable(
@@ -79,13 +64,10 @@ class Dense(_WeightedLayer):
                         #getting better results with default glorot initializer
                         initializer=None,#tf.zeros_initializer, 
                         trainable=True, 
-                        save_var=True, 
-                        add_histograms=self.debug_layer
+                        save_var=True
                     )
                 
                 self.is_built = True
-
-            in_tensor = dropout(in_tensor, self.keep_prob)
 
             # if we get a tensor of shape [ batch, sequence, features ]
             # reshape so it's shape [ batch * sequence, features ]
@@ -112,7 +94,3 @@ class Dense(_WeightedLayer):
             return out_t
 
         
-
-
-
-
