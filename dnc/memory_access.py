@@ -5,6 +5,8 @@ from temporal_linkage import TemporalLinkage
 import layers
 import graph_utils
 import dnc_utils
+import numpy as np
+
 tf.disable_v2_behavior()
 
 
@@ -150,7 +152,7 @@ class MemoryAccess:
                 
         # Write to memory.
         write_weights = self._write_weights(inputs, prev_state.memory, usage)
-        memory = utils._erase_and_write(prev_state.memory, address=write_weights, reset_weights=inputs['erase_vectors'], values=inputs['write_vectors'])
+        memory = _erase_and_write(prev_state.memory, address=write_weights, reset_weights=inputs['erase_vectors'], values=inputs['write_vectors'])
         linkage_state = self._linkage(write_weights, prev_state.linkage)
 
         # Read from memory.
@@ -226,7 +228,7 @@ class MemoryAccess:
         read_mode_size = self._num_reads * num_read_modes
         read_mode = interface_vectored[:, q:q+read_mode_size]
         read_mode = tf.reshape(read_mode, [-1, self._num_reads, num_read_modes])
-        read_mode = utils.BatchApply(read_mode, tf.nn.softmax)
+        read_mode = dnc_utils.BatchApply(read_mode, tf.nn.softmax)
         q += read_mode_size
            
         # Parameters for the (read / write) "weights by content matching" modules.
@@ -286,7 +288,7 @@ class MemoryAccess:
         with tf.name_scope('write_weights', values=[inputs, memory, usage]):
             # c_t^{w, i} - The content-based weights for each write head.
 
-            write_content_weights = utils.cosine_weighting(memory, write_keys, write_strengths, strength_op=tf.nn.softplus, name='cosine_weights')
+            write_content_weights = cosine_weighting(memory, write_keys, write_strengths, strength_op=tf.nn.softplus, name='cosine_weights')
             #write_content_weights = self._write_content_weights_mod(memory, write_keys, write_strengths)
 
             # a_t^i - The allocation weights for each write head.
@@ -320,7 +322,7 @@ class MemoryAccess:
         """
         with tf.name_scope('read_weights', values=[inputs, memory, prev_read_weights, link]):
             # c_t^{r, i} - The content weightings for each read head.
-            content_weights = utils.cosine_weighting(memory, inputs['read_content_keys'], inputs['read_content_strengths'], strength_op=tf.nn.softplus, name='cosine_weights')
+            content_weights = cosine_weighting(memory, inputs['read_content_keys'], inputs['read_content_strengths'], strength_op=tf.nn.softplus, name='cosine_weights')
             
             # Calculates f_t^i and b_t^i.
             forward_weights = self._linkage.directional_read_weights(link, prev_read_weights, forward=True)
@@ -337,4 +339,161 @@ class MemoryAccess:
 
             return read_weights
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def _erase_and_write(memory, address, reset_weights, values):
+    """Module to erase and write in the external memory.
+    Erase operation:
+        M_t'(i) = M_{t-1}(i) * (1 - w_t(i) * e_t)
+    Add operation:
+        M_t(i) = M_t'(i) + w_t(i) * a_t
+    where e are the reset_weights, w the write weights and a the values.
+    Args:
+        memory: 3-D tensor of shape `[batch_size, memory_size, word_size]`.
+        address: 3-D tensor `[batch_size, num_writes, memory_size]`.
+        reset_weights: 3-D tensor `[batch_size, num_writes, word_size]`.
+        values: 3-D tensor `[batch_size, num_writes, word_size]`.
+    Returns:
+        3-D tensor of shape `[batch_size, num_writes, word_size]`.
+    """
+    with tf.name_scope('erase_memory', values=[memory, address, reset_weights]):
+        expand_address = tf.expand_dims(address, 3)
+        reset_weights = tf.expand_dims(reset_weights, 2)
+        weighted_resets = expand_address * reset_weights
+        reset_gate = dnc_utils.reduce_prod(1 - weighted_resets, 1)
+        memory *= reset_gate
+    with tf.name_scope('additive_write', values=[memory, address, values]):
+        add_matrix = tf.matmul(address, values, adjoint_a=True)
+        memory += add_matrix
+    return memory
+
+
+
+
+
+def split_leading_dim(tensor, inputs):
+    """
+    Args:
+        tensor: Tensor to have its first dimension split.
+        inputs: Original reference input to look the dimensions of.
+    Returns:
+        The input tensor, with its first dimension split.
+    """
+    input_shape_static = inputs.get_shape()
+    input_shape_list = input_shape_static.as_list()
+    tensor_shape_static = tensor.get_shape()
+    tensor_shape_list = tensor_shape_static.as_list()
+    if (input_shape_static.is_fully_defined() and tensor_shape_static.is_fully_defined()):
+        new_shape = input_shape_list[:2] + tensor_shape_list[1:]
+        return tf.reshape(tensor, new_shape)
+    # Shape can't be inferred statically.
+    dims_after_first = tf.shape(tensor)[1:]
+    split_sizes = tf.shape(inputs)[:2]
+    known_split_sizes = input_shape_list[:2]
+    known_dims_after_first = tensor_shape_list[1:]
+    output_size = tf.concat([split_sizes, dims_after_first], 0)
+    result = tf.reshape(tensor, output_size)
+    result.set_shape(known_split_sizes + known_dims_after_first)
+    return result
+
+def merge_leading_dims(array_or_tensor):
+    """
+    Merge the first dimensions of a tensor.
+    Returns:
+        Either the input value converted to a Tensor, with the requested dimensions
+        merged, or the unmodified input value if the input has less than `2` dimensions.
+    Raises:
+        ValueError: If the rank of `array_or_tensor` is not well-defined.
+    """
+    tensor = array_or_tensor#tf.convert_to_tensor(array_or_tensor)
+    tensor_shape_static = tensor.get_shape()
+    # Check if the rank of the input tensor is well-defined.
+    if tensor_shape_static.dims is None:
+        raise ValueError("Can't merge leading dimensions of tensor of unknown rank.")
+    tensor_shape_list = tensor_shape_static.as_list()
+    if tensor_shape_static.is_fully_defined():
+        new_shape = ([np.prod(tensor_shape_list[:2])] + tensor_shape_list[2:])
+        return tf.reshape(tensor, new_shape)
+    # Shape can't be inferred statically.
+    tensor_shape = tf.shape(tensor)
+    new_first_dim = tf.reduce_prod(tensor_shape[:2], keepdims=True)
+    other_dims = tensor_shape[2:]
+    new_size = tf.concat([new_first_dim, other_dims], 0)
+    result = tf.reshape(tensor, new_size)
+    if all(value is not None for value in tensor_shape_list[:2]):
+        merged_leading_size = np.prod(tensor_shape_list[:2])
+    else:
+        merged_leading_size = None
+    result.set_shape([merged_leading_size] + tensor_shape_list[2:])
+    return result
+def BatchApply(inputs, module_or_op):
+    return split_leading_dim(module_or_op(merge_leading_dims(inputs)), inputs)
+
+
+
+def weighted_softmax(activations, strengths, strengths_op):
+    """Returns softmax over activations multiplied by positive strengths.
+    Args:
+        activations: A tensor of shape `[batch_size, num_heads, memory_size]`, of
+            activations to be transformed. Softmax is taken over the last dimension.
+        strengths: A tensor of shape `[batch_size, num_heads]` containing strengths to
+            multiply by the activations prior to the softmax.
+        strengths_op: An operation to transform strengths before softmax.
+    Returns:
+        A tensor of same shape as `activations` with weighted softmax applied.
+    """
+    transformed_strengths = tf.expand_dims(strengths_op(strengths), -1)
+    sharp_activations = activations * transformed_strengths
+    return BatchApply(sharp_activations, tf.nn.softmax)
     
+    
+# Ensure values are greater than epsilon to avoid numerical instability.
+_EPSILON = 1e-6
+
+def _vector_norms(m):
+    squared_norms = tf.reduce_sum(m * m, axis=2, keepdims=True)
+    return tf.sqrt(squared_norms + _EPSILON)
+
+
+def cosine_weighting(memory, keys, strengths, strength_op=tf.nn.softplus, name='cosine_weights'):
+    """Cosine-weighted attention.
+    
+    Calculates the cosine similarity between a query and each word in memory, then
+    applies a weighted softmax to return a sharp distribution.
+    
+    Args:
+        memory: A 3-D tensor of shape `[batch_size, memory_size, word_size]`.
+        keys: A 3-D tensor of shape `[batch_size, num_heads, word_size]`.
+        strengths: A 2-D tensor of shape `[batch_size, num_heads]`.
+        strength_op: operation to apply to strengths (default is tf.nn.softplus).
+        
+    Returns:
+        Weights tensor of shape `[batch_size, num_heads, memory_size]`.
+    """
+    # Calculates the inner product between the query vector and words in memory.
+    dot = tf.matmul(keys, memory, adjoint_b=True)
+
+    # Outer product to compute denominator (euclidean norm of query and memory).
+    memory_norms = _vector_norms(memory)
+    key_norms = _vector_norms(keys)
+    norm = tf.matmul(key_norms, memory_norms, adjoint_b=True)
+    # Calculates cosine similarity between the query vector and words in memory.
+    similarity = dot / (norm + _EPSILON)
+    return weighted_softmax(similarity, strengths, strength_op)
