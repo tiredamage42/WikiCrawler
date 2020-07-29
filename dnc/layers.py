@@ -1,5 +1,4 @@
 import tensorflow as tf
-import numpy as np
 import graph_utils
 
 tf.disable_v2_behavior()
