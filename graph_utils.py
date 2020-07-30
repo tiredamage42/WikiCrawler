@@ -80,9 +80,6 @@ def average_tracker(orig_val):
             
     return average
    
-
-
-
 '''
 convenience function to build tf variables
 adds them to save vars collection, and adds histogram summaries if specified
@@ -105,8 +102,7 @@ def _check_save_and_train_vars():
         print('\t{0} {1}'.format(v.name, v.shape))
         if not (v in save_vars):
             tf.add_to_collection(SAVE_VARS, v)
-            print("\t^^^^^^NOT IN SAVE VARS!!!!^^^^^")
-
+            
     print("Save Variables Not In Train Vars:")
     for v in save_vars:
         if not (v in tf.trainable_variables()):

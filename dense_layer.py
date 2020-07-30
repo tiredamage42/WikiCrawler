@@ -13,9 +13,9 @@ class DenseLayer():
 
     def __call__(self, in_tensor):
         with tf.variable_scope(self.layer_name) as scope:
-
             in_shape_g = tf.shape(in_tensor)
             in_shape_l = in_tensor.get_shape().as_list()
+
             if not self.is_built:
                 self.w = graph_utils.get_variable(
                     'weights', [in_shape_l[-1], self.features], dtype=tf.float32, 
@@ -33,7 +33,7 @@ class DenseLayer():
             needs_reshape = len(in_shape_l) != 2
             if needs_reshape:
                 in_tensor = tf.reshape(in_tensor, [ -1, in_shape_l[-1] ], name="flatten")
-                
+
             # matrix multiplication
             out_t = tf.matmul(in_tensor, self.w, name="mx")
 

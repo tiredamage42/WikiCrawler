@@ -1,107 +1,43 @@
 import os
-# suppress info logs
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1' 
+# suppress info logs and warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 
-import wikipedia_utils
-import numpy as np 
-import time
 import char_dictionary
 from embedding_layer import Embeddings
 from rnn import dynamic_rnn
 import cells
 from dense_layer import DenseLayer
-import log_utils
-import graph_utils
 import checkpoints
-
-
-#batch size msut be constant when saving rnn states between runs
-batch_size = 4
-
-#to not request too many pages at once
-min_request_time = 1
-
-train_seq_length = 16
-
-#print model output from this starting text during training
-debug_string_starter = "What's going to "
-debug_length = 256
-
-learn_rate=1e-3
-momentum=0.9
-gradient_clip=5.0
+    
+batch_size = 1
 
 checkpoint_load_dir = 'Checkpoints/'
-checkpoint_save_path = checkpoint_load_dir + 'WikiCrawler'
-
-'''DATA'''
-max_length = 0
-last_time_loaded = 0
-text_data = None
-
-def load_pages_batch():
-    global max_length
-    global last_time_loaded
-    global text_data
-
-    #if we jsut loaded, restart the current batch again
-    if time.time() - last_time_loaded < min_request_time:
-        print("\nRESTARTING CURRENT WIKI BATCH\n")
-        return
-
-    #if enough time has passed, update teh dataset with new articles
-    last_time_loaded = time.time()
-    print("\nLOADING NEW WIKI BATCH\n")
-    
-    #get text from the articles
-    page_texts = wikipedia_utils.get_random_pages(page_count=batch_size)
-    
-    #for t in page_texts:
-    #    print '\n' + t['summary'] + '\nLength: {}\n'.format(len(t['text']))
-    
-    #encode strings
-    encoded_texts = [char_dictionary.encode_string(t['text']) for t in page_texts]
-
-    #pad
-    ls = [len(t) for t in encoded_texts]
-    max_length = np.max(ls)
-    text_data = np.zeros([batch_size, max_length], np.int32)
-    for i in range(batch_size):
-        text_data[i, :ls[i]] = encoded_texts[i]
 
 with tf.Graph().as_default():      
-    #initialize global step, etc...
-    gc.initialize_graph_constants(training_mode=True)
-
+    
     '''MODEL'''
     seq_in_ph = tf.placeholder(shape=[batch_size, None], dtype=tf.int32, name='sequence_in')
     temperature = tf.placeholder_with_default(0.0, (), name='temperature')
     
     '''
     sample sequence---
-
     x = s a m p l e s e q u e n c e - - 
-    y = a m p l e s e q u e n c e - - -
-    lw= 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0   <- loss weights
     '''
-    x_data_t = seq_in_ph[:, :-1]
-    targets_t = seq_in_ph[:, 1:] #inputs shifted over in time dimension
-   
     #embed inputs
-    embeddings = Embeddings('embeddings', model_dict.vocab_size, embedding_size=256)
-    seq_in = embeddings(x_data_t)
+    embeddings = Embeddings('embeddings', char_dictionary.vocab_size, embedding_size=256)
+    seq_in = embeddings(seq_in_ph)
 
     cell = cells.MultiRNNCell( [ cells.LSTMSavedState(256, batch_size) for i in range(2) ] )
 
     cell_reset_op = cell.reset_state()
     
-    output = rnn.dynamic_rnn(seq_in, cell, batch_size=batch_size)
+    output = dynamic_rnn(seq_in, cell, batch_size)
     
     #logits
-    logits = DenseLayer("logits", model_dict.vocab_size)(output)
+    logits = DenseLayer("logits", char_dictionary.vocab_size)(output)
 
     #output
     softmax = tf.nn.softmax(logits)
@@ -116,141 +52,80 @@ with tf.Graph().as_default():
 
     # offset softmax values by the noise
     generated = tf.argmax(softmax + noise, -1) 
-
-    '''LOSS'''
-    cross_entorpy = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=targets_t)
-    
-    #no loss at end of sequences in batch (Padding)
-    loss_weights_t = tf.clip_by_value(tf.cast(targets_t, tf.float32), 0.0, 1.0)
-
-    cross_entorpy = cross_entorpy * loss_weights_t
-    loss = tf.reduce_mean(cross_entorpy)
-    
-    #track loss average every 100 steps
-    avg_loss_op = graph_utils.average_tracker(loss)
-
-    '''MINIMIZE LOSS OP'''
-    with tf.variable_scope('training'):
-        o = tf.train.RMSPropOptimizer(learn_rate, momentum=momentum)
-        gvs = o.compute_gradients(loss, var_list=tf.get_trainable_vars())
-
-        '''clip gradients'''
-        gradients, variables = zip(*gvs)
-        gradients, _ = tf.clip_by_global_norm(gradients, gradient_clip)
-        capped_gvs = zip(gradients, variables)
-        
-        #optimize
-        apply_gradients = (o.apply_gradients(capped_gvs), learn_rate, momentum)
-        
-
-    graph_utils._check_save_and_train_vars()
     
     with tf.Session() as sess:
         sess.run([tf.global_variables_initializer(), tf.tables_initializer()])
         
-        orig_step, saved_step, best_loss = 0, 0, 9999999999999
-        
         #maybe load checkpoint
         if checkpoints.load_checkpoint(sess, checkpoint_load_dir, filter_vars_not_in_graph=False):
-            orig_step, best_loss = sess.run([graph_utils.GLOBAL_STEP, graph_utils.SAVED_STEP_INFO])
-            saved_step = orig_step
-
-        #make saver for saving variables
-        saver = tf.train.Saver(tf.get_collection(graph_utils.SAVE_VARS))
-        
-        def debug_model(temp):
-            sess.run(cell_reset_op)
             
-            #start list with starter tokens
-            allgen = char_dictionary.encode_string(debug_string_starter)
-            
-            #generate one token at a time
-            for _ in range(debug_length):
-                allgen.append(sess.run(generated, feed_dict={ 
-                    seq_in_ph: [[allgen[-1], allgen[-1]],] * batch_size, 
-                    temperature:temp 
-                })[0, 0])
-            
-            #decode and print
-            print ('\nTEMPERATURE: {}'.format(temp) + '\n' + char_dictionary.decode_tokens(allgen))
-
-            sess.run(cell_reset_op)
-        
-        l = 0
-
-        # as training goes on, keep the state around for longer
-        state_reset_iterations = 1
-        
-        def get_next_batch():
-            global l
-            global state_reset_iterations
-
-            e = min(l+train_seq_length, max_length)
-
-            # if we're dne with the batch or theres only 1 spot left (need at least two)
-            # reload pages or load new pages and start form 0 again
-            if (l >= e and e == max_length) or ( e - l == 1):
-                l = 0
-                
-                #print at various sampling temperatures
-                for temp in [0.0,0.25,0.5,0.75,1.0]:
-                    debug_model(temp)
-                
-                load_pages_batch()
-
-                state_reset_iterations += 1
-                
-                return get_next_batch()
-            
-            #get the next batch
-            x = text_data[:,l:e]
-            l += max((e-l) - 1, 1)
-            return x
-            
-        i = 0
-        while True:
-            if i % state_reset_iterations == 0:
+            def debug_model(temp, start_string, length):
                 sess.run(cell_reset_op)
-            
-            do_debugs = i % 500 == 0
+                
+                #start list with starter tokens
+                allgen = char_dictionary.encode_string(start_string)
 
-            feed_dict = {}
-            #prepare feed dict for training iteration
-            feed_dict[seq_in_ph] = get_next_batch()
+                # set state up with starting string
+                for i in range(len(allgen) - 1):
+                    sess.run(generated, feed_dict={ 
+                        seq_in_ph: [[allgen[i]]], 
+                        temperature: 0 
+                    })
+                
+                #generate one token at a time
+                for _ in range(length):
+                    gen_char = sess.run(generated, feed_dict={ 
+                        seq_in_ph: [[allgen[-1]]], 
+                        temperature:temp 
+                    })[0, 0]
+                    allgen.append(gen_char)
+                
+                #decode and print
+                print ('\n\n' + char_dictionary.decode_tokens(allgen))
 
-            run_tensors = {}
-            #increment counters for averages ops
-            run_tensors['_'] = tf.get_collection(graph_utils._AUX_OPS)
-            run_tensors['__'].append(graph_utils._INCREMENT_STEP)
-            run_tensors['optimizer'] = apply_gradients
-            if do_debugs:    
-                run_tensors['avg_loss'] = avg_loss_op
-                #get input and output values to print to console
-                run_tensors['rnn_in_out'] = (x_data_t, generated)
-                
-            
-            #run the session (optimize gradients...)
-            run_return = sess.run(run_tensors, feed_dict=feed_dict)
 
-            log_utils.log("\rSaved Step: {0} Global Step: {1} Read Index {2}/{3} State Reset Iterations: {4}".format(
-                saved_step, orig_step+i, l, max_length, state_reset_iterations)
-            )
-            
-            if do_debugs:
-                x, o = run_return['rnn_in_out']
-                for b in range(batch_size):
-                    print ('Batch {}'.format(b) + '\n\tO: ' + char_dictionary.decode_tokens(o[b]) + '\n\tI: ' + char_dictionary.decode_tokens(x[b]))
+            phase = 0
+            temp = 0
+            length = 0
+            start_string = ''
+
+            def wants_quit(response):
+                return isinstance(response, str) and (response == 'q' or response == 'Q')
+
+            while True:
+                if phase == 0:
+                    temp = input('Select a temperature [ 0, 1 ] (press q to quit): ')
+
+                    if wants_quit(temp):
+                        break
+                    
+                    if (not isinstance(temp, float)):
+                        print ("Temperature must be a number!")
+                    else:
+                        temp = min(1.0, max(0.0, temp))
+                        phase += 1
+
+                elif phase == 1:
+                    length = input('Select a length to generate (press q to quit): ')
+                    if wants_quit(length):
+                        break
+                    
+                    if (not isinstance(length, int)):
+                        print ("Length must be a number!")
+                    else:
+                        length = max(0, length)
+                        phase += 1
                 
-                avg_loss = run_return['avg_loss']
+                elif phase == 2:
+                    start_string = input('Select a starting string of text (press q to quit): ')
+                    if wants_quit(length):
+                        break
+                    phase += 1
+
+                elif phase == 3:
+                    debug_model(temp, start_string, length)
+                    phase = 0
+                    
+                    
+
                 
-                print("\n\nAVG Loss: {}\n\n".format(avg_loss))
-                
-                #save if there was improvement
-                if avg_loss < best_loss:
-                    saved_step = orig_step + i
-                    best_loss = avg_loss
-                    graph_utils.save_step_info(sess, step_info=avg_loss)
-                    print("\nSaving checkpoint....")
-                    saver.save(sess, checkpoint_save_path)#, global_step=graph_step)
-                    print("Saved!")
-            i += 1

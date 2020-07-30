@@ -4,7 +4,7 @@ cells inheret from tensorflow rnn cell, so can be used with tensorflow rnns
 '''
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
-from tensorflow.python.ops.rnn_cell import LSTMCell, LSTMStateTuple, BasicLSTMCell
+from tensorflow.python.ops.rnn_cell import LSTMStateTuple, BasicLSTMCell
 
 class MultiRNNCell(tf.nn.rnn_cell.RNNCell):
     def __init__(self, cells):
@@ -79,8 +79,5 @@ class LSTMSavedState(tf.nn.rnn_cell.RNNCell):
     def __call__(self, inputs, state, scope=None):
         out, state = self.cell(inputs, state)
         h, c = state
-        # h.set_shape([self.batch_size, self.features])
-        # c.set_shape([self.batch_size, self.features])
-        # out.set_shape([self.batch_size, self.features])
         return out, LSTMStateTuple(h, c)
    

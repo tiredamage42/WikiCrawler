@@ -11,7 +11,7 @@ char2id = { w: i + 2 for i, w in enumerate(id2char) }
 vocab_size = len(id2char) + 2
 
 def encode_char(char): 
-    return char2id.get(char, -1)
+    return char2id.get(char, 1)
 
 def decode_token(token):
     if token == 0 or token == 1:

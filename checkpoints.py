@@ -16,7 +16,8 @@ returns list of tuples:
 def get_variables_in_checkpoint_file(file_name):
     cp_vars = []
     print("Building Checkpoint Reader...")
-    reader = pywrap_tensorflow.NewCheckpointReader(file_name)
+    reader = tf.train.NewCheckpointReader(file_name)
+    # reader = pywrap_tensorflow.NewCheckpointReader(file_name)
     print("Getting Var2Shape Map...")
     var_to_shape_map = reader.get_variable_to_shape_map()
     print("Assembling Variables List...")
