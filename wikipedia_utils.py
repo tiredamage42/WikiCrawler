@@ -30,10 +30,15 @@ def _get_random_pages(num_pages):
 
     while len(valid_pages) != num_pages:
 
-        article_titles = wikipedia.random(num_pages - len(valid_pages))
+        n = num_pages - len(valid_pages)
+        article_titles = wikipedia.random(n)
 
-        for title_candidate in article_titles:
-            add_page_if_valid(title_candidate)
+        if n == 1:
+            add_page_if_valid(article_titles)
+        else:
+            for title_candidate in article_titles:
+                add_page_if_valid(title_candidate)
+
             
     return valid_pages
 

@@ -193,7 +193,7 @@ with tf.Graph().as_default():
                 l = 0
                 
                 #print at various sampling temperatures
-                for temp in [0.0,0.25,0.5,0.75,1.0]:
+                for temp in [0.0,0.5,1.0]:
                     debug_model(temp)
                 
                 load_pages_batch()
