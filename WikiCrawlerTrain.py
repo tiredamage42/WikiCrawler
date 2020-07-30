@@ -22,7 +22,7 @@ def log(msg, bold=False):
     sys.stdout.flush()
 
 #batch size msut be constant when saving rnn states between runs
-batch_size = 4
+batch_size = 1
 
 #to not request too many pages at once
 min_request_time = 1
@@ -33,7 +33,7 @@ train_seq_length = 16
 debug_string_starter = "What's going to "
 debug_length = 256
 
-learn_rate=1e-3
+learn_rate=1e-4
 momentum=0.9
 gradient_clip=5.0
 
@@ -245,7 +245,8 @@ with tf.Graph().as_default():
                     print ('O: ' + char_dictionary.decode_tokens(o[0]) + '\nI: ' + char_dictionary.decode_tokens(x[0]))
                 
                 #save if there was improvement
-                if avg_loss < best_loss:
+                # if avg_loss < best_loss:
+                if True:
                     saved_step = orig_step + i
                     best_loss = avg_loss
                     graph_utils.save_step_info(sess, step_info=avg_loss)
